@@ -6,6 +6,7 @@ from arbor_guardian.main import parse_meal_sets
 from arbor_guardian.util import (
     labeled_fields,
     money,
+    normalize_school,
     parse_short_date,
     safe_path,
     slug,
@@ -51,6 +52,35 @@ class UtilTests(unittest.TestCase):
         )
         with self.assertRaises(SystemExit):
             parse_meal_sets(["bad"])
+
+    def test_normalize_school(self):
+        self.assertEqual(
+            normalize_school("https://Example.uk.arbor.sc/"),
+            "Example.uk.arbor.sc",
+        )
+        for bad in ("../../tmp/evil", "evil.com", "a/b.uk.arbor.sc", ""):
+            with self.assertRaises(SystemExit):
+                normalize_school(bad)
+
+
+class CliArgvTests(unittest.TestCase):
+    def test_top_level_help_not_messages(self):
+        """`arbor_guardian.py --help` must show top-level help, not messages."""
+        import subprocess
+        import sys
+
+        r = subprocess.run(
+            [sys.executable, "arbor_guardian.py", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]),
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout
+        # Top-level lists the command set; messages-only help is
+        # "arbor_guardian.py messages [-h]".
+        self.assertNotIn("arbor_guardian.py messages", out)
+        self.assertIn("{messages,children,", out)
 
 
 if __name__ == "__main__":

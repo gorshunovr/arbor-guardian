@@ -116,7 +116,11 @@ exact output shape of each.
 ## Security
 - `ARBOR_PW` is a secret: store it in the environment only, never in the repo.
 - The cookie file holds a live session — keep it `0600` (the script sets this)
-  and out of git.
+  and out of git. Cache/cookie directories are created as `0700` when possible.
+- `--school` / discovered hosts must be `*.arbor.sc` hostnames (no path
+  segments): this blocks cookie-jar path traversal and posting credentials to a
+  typo / phishing host.
+- `--offline` serves the SQLite cache and does not require credentials.
 
 ## Caching (SQLite)
 Results are cached in `$ARBOR_CACHE_DB` (default `~/.cache/arbor/cache.sqlite3`)

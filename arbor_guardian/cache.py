@@ -6,12 +6,14 @@ import os
 import sqlite3
 import time
 
+from .util import ensure_private_dir
+
 
 def cache_open():
     path = os.path.expanduser(os.environ.get("ARBOR_CACHE_DB", "~/.cache/arbor/cache.sqlite3"))
     d = os.path.dirname(path)
     if d:
-        os.makedirs(d, exist_ok=True)
+        ensure_private_dir(d)
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     con.executescript("""

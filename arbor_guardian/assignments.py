@@ -111,8 +111,8 @@ def get_assignments(opener, base, child, year, segments, details):
                     if str(k.get("mainValue", "")).isdigit()
                     else k.get("mainValue")
                 )
-    except Exception as e:
-        log(f"assignments KPI failed for {sid}: {e}")
+    except Exception:
+        log("assignments KPI failed")
     rec = {"academic_year": {"id": str(year), "label": label}, "counts": counts}
     for seg in segments:
         rows = parse_assignment_rows(

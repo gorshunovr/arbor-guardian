@@ -28,7 +28,7 @@ from .invoices import compute_invoices
 from .meals import get_meal_options, get_meals, set_meal_provisions
 from .messages import do_messages
 from .report_cards import get_report_cards
-from .util import load_dotenv, log, to_date
+from .util import load_dotenv, log, normalize_school, to_date
 
 
 def compute_children(email, pw, cookie_dir, schools):
@@ -130,13 +130,19 @@ def compute_perchild(args, email, pw, cookie_dir, schools, want):
     return out
 
 
+def chosen_schools_from_args(args):
+    """Explicit --school / $ARBOR_SCHOOL list (normalized), or empty."""
+    chosen = args.school or [
+        s.strip() for s in (os.environ.get("ARBOR_SCHOOL") or "").split(",") if s.strip()
+    ]
+    return [{"subdomain": normalize_school(h), "name": None} for h in chosen]
+
+
 def resolve_schools(args, email, pw):
     if not args.all_schools:
-        chosen = args.school or [
-            s.strip() for s in (os.environ.get("ARBOR_SCHOOL") or "").split(",") if s.strip()
-        ]
+        chosen = chosen_schools_from_args(args)
         if chosen:
-            return [{"subdomain": h, "name": None} for h in chosen]
+            return chosen
     schools = discover_schools(email, pw)
     if not schools:
         raise SystemExit("No Arbor schools found for these credentials.")
@@ -154,7 +160,13 @@ def cached_schools(con):
                 s.update(json.loads(r["key"]).get("schools", []))
             except Exception:
                 pass
-    return [{"subdomain": x, "name": None} for x in sorted(s)]
+    out = []
+    for x in sorted(s):
+        try:
+            out.append({"subdomain": normalize_school(x), "name": None})
+        except SystemExit:
+            continue
+    return out
 
 
 def cache_key(args, schools, want):
@@ -199,15 +211,23 @@ def main():
 
     argv = sys.argv[1:]
     first = next((a for a in argv if not a.startswith("-")), None)
-    if first not in SUBCMDS:  # backward-compat: default to `messages`
-        argv = ["messages"] + argv
+    # Backward-compat: bare flags default to `messages`, but keep top-level
+    # `--help`/`-h` (otherwise they become `messages --help`).
+    if first not in SUBCMDS:
+        if first is None and any(a in ("-h", "--help") for a in argv):
+            pass
+        else:
+            argv = ["messages"] + argv
     args = build_parser().parse_args(argv)
 
     email, pw = os.environ.get("ARBOR_EMAIL"), os.environ.get("ARBOR_PW")
-    if not email or not pw:
+    # Offline cache reads need no credentials; everything else does.
+    if not args.offline and (not email or not pw):
         raise SystemExit("ARBOR_EMAIL and ARBOR_PW must be set (env or .env).")
 
     if args.list_schools:
+        if not email or not pw:
+            raise SystemExit("ARBOR_EMAIL and ARBOR_PW must be set (env or .env).")
         json.dump(
             {"schools": discover_schools(email, pw)}, sys.stdout, ensure_ascii=False, indent=2
         )
@@ -222,10 +242,10 @@ def main():
             log(f"cache disabled: {e}")
 
     cookie_dir = os.path.expanduser(os.environ.get("ARBOR_COOKIE_DIR", "~/.cache/arbor"))
-    # Offline runs must not hit the network to resolve schools: if none were given
-    # explicitly, take the schools known to the cache.
-    if args.offline and not args.school and not os.environ.get("ARBOR_SCHOOL"):
-        schools = cached_schools(con)
+    # Offline must never hit the network (including school discovery).
+    if args.offline:
+        chosen = chosen_schools_from_args(args)
+        schools = chosen or cached_schools(con)
         if not schools:
             raise SystemExit("--offline: no cached schools; run online once or pass --school.")
     else:
@@ -244,6 +264,8 @@ def main():
         or (args.cmd == "report-cards" and args.download)
         or (args.cmd == "attendance-by-date" and args.certificate)
     )
+    if args.offline and side_effects:
+        raise SystemExit("--offline cannot be combined with meal writes or PDF downloads")
 
     if args.cmd == "messages":
         out = do_messages(args, email, pw, cookie_dir, schools, con)

@@ -32,6 +32,38 @@ def load_dotenv(path):
         os.environ.setdefault(k, v)
 
 
+def normalize_school(host):
+    """Validate a school host used for URLs and cookie filenames.
+
+    Rejects path separators / ``..`` (cookie-jar path traversal) and hosts that
+    are not under ``*.arbor.sc`` (avoids posting credentials to a typo / phishing
+    host via ``--school``).
+    """
+    h = (host or "").strip()
+    h = re.sub(r"^https?://", "", h, flags=re.I).strip().strip("/")
+    if not h or "/" in h or "\\" in h or ".." in h:
+        raise SystemExit(f"invalid school host: {host!r}")
+    if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", h):
+        raise SystemExit(f"invalid school host: {host!r}")
+    if not h.lower().endswith(".arbor.sc"):
+        raise SystemExit(
+            f"refusing non-Arbor host {h!r} (expected a *.arbor.sc subdomain; "
+            "use --list-schools to see yours)"
+        )
+    return h
+
+
+def ensure_private_dir(path):
+    """Create *path* as a user-only directory (``0700``) when possible."""
+    if not path:
+        return
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+
+
 def walk(node, fn):
     if isinstance(node, dict):
         fn(node)

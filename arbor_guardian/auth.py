@@ -7,7 +7,7 @@ import urllib.request
 
 from .constants import LOGIN_PATH, SEARCH_BY_EMAIL, WHOAMI_PATH
 from .http import _open, build_opener, req
-from .util import log
+from .util import ensure_private_dir, log, normalize_school
 
 
 def discover_schools(email, pw):
@@ -23,6 +23,11 @@ def discover_schools(email, pw):
     for p in j.get("payload", []):
         host = re.sub(r"^https?://", "", p.get("sisUrl") or "").strip("/")
         if host:
+            try:
+                host = normalize_school(host)
+            except SystemExit:
+                log("warning: skipping unexpected school host from discovery")
+                continue
             out.append({"name": p.get("name"), "subdomain": host})
     return out
 
@@ -43,7 +48,7 @@ def login(opener, cj, base, email, pw):
         issues = j.get("items", [{}])[0].get("loginIssues")
         raise SystemExit(f"login failed for {base}: success={j.get('success')} issues={issues}")
     try:
-        os.makedirs(os.path.dirname(cj.filename), exist_ok=True)
+        ensure_private_dir(os.path.dirname(cj.filename))
         cj.save(ignore_discard=True, ignore_expires=True)
         try:
             os.chmod(cj.filename, 0o600)
@@ -55,7 +60,9 @@ def login(opener, cj, base, email, pw):
 
 def session(school, email, pw, cookie_dir):
     """Return (opener, base_url) for a school, logging in if needed."""
+    school = normalize_school(school)
     base = "https://" + school
+    ensure_private_dir(cookie_dir)
     opener, cj = build_opener(os.path.join(cookie_dir, school + ".cookies"))
     if not is_logged_in(opener, base):
         login(opener, cj, base, email, pw)
