@@ -161,8 +161,9 @@ ruff format arbor_guardian arbor_guardian.py
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions runs the same checks on push/PR (see `.github/workflows/ci.yml`).
-See [CONTRIBUTING.md](CONTRIBUTING.md) for layout notes and the no-secrets / no-PI rules.
+Enable CI by copying `ci/github-actions.yml` to `.github/workflows/ci.yml`
+(needs a GitHub token with the `workflow` scope to push that path). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for layout notes and the no-secrets / no-PI rules.
 
 ## License
 

@@ -47,4 +47,4 @@ Do **not** hit a live Arbor portal in CI or in shared logs. Prefer `--help`, `co
 
 ## Pull requests
 
-CI runs ruff (check + format), `compileall`, `--help` smoke, and unit tests. Prefer a feature branch + PR.
+Prefer a feature branch + PR. CI should run ruff (check + format), `compileall`, `--help` smoke, and unit tests once `.github/workflows/ci.yml` is on the branch (pushing workflow files needs a GitHub token with the `workflow` scope).
