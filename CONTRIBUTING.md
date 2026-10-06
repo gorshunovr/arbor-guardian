@@ -36,6 +36,7 @@ Do **not** hit a live Arbor portal in CI or in shared logs. Prefer `--help`, `co
 | `arbor_guardian.py` | Thin CLI wrapper (keep this working) |
 | `arbor_guardian/` | Package: auth, cache, CLI, one module per concern |
 | `tests/` | Stdlib `unittest` for pure helpers (no network) |
+| `.github/workflows/ci.yml` | GitHub Actions CI (source mirror: `ci/github-actions.yml`) |
 | `notes/`, `har/`, `.env` | Local only — **gitignored**; never commit |
 
 ## Rules
@@ -47,4 +48,4 @@ Do **not** hit a live Arbor portal in CI or in shared logs. Prefer `--help`, `co
 
 ## Pull requests
 
-Prefer a feature branch + PR. CI should run ruff (check + format), `compileall`, `--help` smoke, and unit tests once `.github/workflows/ci.yml` is on the branch (pushing workflow files needs a GitHub token with the `workflow` scope).
+Prefer a feature branch + PR. GitHub Actions CI (`.github/workflows/ci.yml`) runs ruff (check + format), `compileall`, `--help` smoke, and unit tests on push and pull requests.

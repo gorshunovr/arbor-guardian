@@ -165,9 +165,10 @@ ruff format arbor_guardian arbor_guardian.py
 python -m unittest discover -s tests -v
 ```
 
-Enable CI by copying `ci/github-actions.yml` to `.github/workflows/ci.yml`
-(needs a GitHub token with the `workflow` scope to push that path). See
-[CONTRIBUTING.md](CONTRIBUTING.md) for layout notes and the no-secrets / no-PI rules.
+CI runs on GitHub Actions (`.github/workflows/ci.yml`; mirrored in
+`ci/github-actions.yml`) — ruff, `compileall`, CLI `--help` smoke, and unit
+tests on push/PR to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for layout
+notes and the no-secrets / no-PI rules.
 
 ## License
 
