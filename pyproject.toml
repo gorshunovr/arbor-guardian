@@ -1,0 +1,31 @@
+[project]
+name = "arbor-guardian"
+version = "0.1.0"
+description = "Read the Arbor guardian/parent portal as JSON (stdlib only)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# Runtime: Python standard library only. Dev tooling below is optional.
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["arbor_guardian"]
+
+[tool.ruff.lint]
+# Keep linting light for a small stdlib script ported from a monolith.
+select = ["E", "F", "I", "UP", "W"]
+ignore = [
+  "E501",   # line length — portal parsers are naturally wide
+  "UP031",  # % formatting still used in a few portal helpers
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

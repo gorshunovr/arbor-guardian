@@ -7,7 +7,8 @@ description: Read data from the Arbor guardian/parent portal as JSON — school 
 
 Reads the Arbor guardian portal and prints a JSON object to stdout. The agent
 decides what to do with the result (summarise, remind, notify). This skill only
-fetches data.
+fetches data. Implementation lives in the `arbor_guardian/` package;
+`python3 arbor_guardian.py …` remains the public entry point.
 
 ## Config (env, or a `.env` file loaded automatically)
 Required: `ARBOR_EMAIL`, `ARBOR_PW`. Optional: `ARBOR_SCHOOL` (comma-separated
