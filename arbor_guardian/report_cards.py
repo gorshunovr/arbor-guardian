@@ -56,8 +56,15 @@ def download_report_card(opener, base, view_url, dest):
             r = json.loads(req(opener, base + u + "/?format=json", data={"fields": {}}))
             durl = ((r.get("action_params") or {}).get("downloadUrl")) or ""
             durl = re.sub(r"^https?://[^/]+", "", durl)
-            if not durl.startswith("/"):
+            # Same-origin relative path only; drop query for the allow-check.
+            path_only = durl.split("?", 1)[0]
+            if not path_only.startswith("/") or path_only.startswith("//"):
                 return {"error": "no downloadUrl in response"}
+            if not re.match(
+                r"^/(?:guardians/|custom-report-card-student/|file/|download/)",
+                path_only,
+            ):
+                return {"error": f"refusing unexpected downloadUrl path: {path_only!r}"}
             sep = "&" if "?" in durl else "?"
             body, hdr = req_bytes(opener, base + safe_path(durl) + sep + "download-token=" + token)
             break

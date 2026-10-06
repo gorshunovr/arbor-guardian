@@ -1,17 +1,36 @@
 """HTTP helpers: opener, throttled requests, form/bytes variants."""
 
+import datetime as dt
 import json
 import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from email.utils import parsedate_to_datetime
 from http.cookiejar import MozillaCookieJar
 
 from .constants import MAX_BACKOFF, MAX_RETRIES, MIN_INTERVAL, TIMEOUT
 from .util import log
 
 _last_request = [0.0]
+
+
+def _retry_after_delay(headers, attempt):
+    """Seconds to wait from Retry-After (integer or HTTP-date), else exponential."""
+    ra = headers.get("Retry-After") if headers else None
+    if ra is not None:
+        s = str(ra).strip()
+        if s.isdigit():
+            return float(s)
+        try:
+            when = parsedate_to_datetime(s)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=dt.timezone.utc)
+            return max(0.0, (when - dt.datetime.now(dt.timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError, IndexError):
+            pass
+    return 2.0**attempt
 
 
 def build_opener(cookie_file):
@@ -44,17 +63,25 @@ def _open(request, opener=None, raw=False):
                     return body, resp.headers
                 return body.decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
-            if e.code in (429, 503) and attempt < MAX_RETRIES:
-                ra = e.headers.get("Retry-After") if e.headers else None
-                delay = float(ra) if (ra and str(ra).isdigit()) else 2.0**attempt
-                delay = min(delay, MAX_BACKOFF)
-                log(
-                    f"Arbor returned {e.code}; backing off {delay:.0f}s "
-                    f"(attempt {attempt + 1}/{MAX_RETRIES})"
-                )
-                time.sleep(delay)
-                continue
-            raise
+            try:
+                if e.code in (429, 503) and attempt < MAX_RETRIES:
+                    delay = min(_retry_after_delay(e.headers, attempt), MAX_BACKOFF)
+                    log(
+                        f"Arbor returned {e.code}; backing off {delay:.0f}s "
+                        f"(attempt {attempt + 1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+            finally:
+                try:
+                    e.read()
+                except Exception:
+                    pass
+                try:
+                    e.close()
+                except Exception:
+                    pass
         finally:
             _last_request[0] = time.monotonic()
     raise SystemExit("giving up after repeated 429/503 from Arbor")

@@ -4,11 +4,21 @@ import os
 import re
 
 TIMEOUT = 30
+
+
 # Politeness: keep at least this many seconds between requests to Arbor, and
 # back off (rather than hammer or fail) when the portal throttles us. This
 # prevents the script from creating a DoS-like burst, e.g. when fetching many
 # message bodies. Tunable via $ARBOR_MIN_INTERVAL.
-MIN_INTERVAL = max(0.0, float(os.environ.get("ARBOR_MIN_INTERVAL", "0.5")))
+def _env_float(name, default):
+    raw = os.environ.get(name, default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+MIN_INTERVAL = max(0.0, _env_float("ARBOR_MIN_INTERVAL", "0.5"))
 MAX_RETRIES = 4  # on 429/503
 MAX_BACKOFF = 30.0  # seconds
 
@@ -69,9 +79,19 @@ ATT_CERT_RE = re.compile(
 FILES_LIST_RE = re.compile(r"^/guardians/(club|trip)/list-files/(club|trip)-id/\d+/student-id/\d+$")
 # Anything that could spend money or change state. The read helpers refuse to
 # follow a portal-supplied URL that matches this, as a belt-and-braces guard.
+# Path-segment aware so "/updated" / "/created" (read paths) are not refused,
+# while "/register/…", "/update/…", basket/checkout/pay still are.
 UNSAFE_URL_RE = re.compile(
-    r"(?i)basket|checkout|buy-product|top-up-by|pay-|/pay\b|"
-    r"process-|sign-?up|register-|consent|/save|/delete|/create|/update"
+    r"(?i)(?:^|/)"
+    r"(?:"
+    r"basket|checkout|buy-product|"
+    r"top-up(?:-by)?|topup|"
+    r"pay|"
+    r"process-[^/]+|"
+    r"sign-?up|register|consent|"
+    r"save|delete|create|update"
+    r")"
+    r"(?:/|$|\?|&|-)"
 )
 JS = "?format=javascript"
 
