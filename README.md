@@ -16,9 +16,13 @@ children across **several schools** is handled — all schools are processed by
 default and every record carries its `school`.
 
 ## Files
-- `arbor_guardian.py` — the fetcher (run this).
+- `arbor_guardian.py` — thin CLI entry (run this; same UX as before).
+- `arbor_guardian/` — package split by concern (auth, cache, CLI, one module per
+  command group). Also: `python3 -m arbor_guardian …`.
 - `SKILL.md` — instructions the agent reads (when/how to use, output shape).
 - `.env.example` — copy to `.env` and fill in (gitignored).
+- `pyproject.toml` — project metadata + optional `ruff` config (dev-only).
+- `tests/` — tiny stdlib unit tests for pure helpers (no network).
 - `README.md` — this file (human setup).
 
 ## How it works
@@ -112,7 +116,11 @@ exact output shape of each.
 ## Security
 - `ARBOR_PW` is a secret: store it in the environment only, never in the repo.
 - The cookie file holds a live session — keep it `0600` (the script sets this)
-  and out of git.
+  and out of git. Cache/cookie directories are created as `0700` when possible.
+- `--school` / discovered hosts must be `*.arbor.sc` hostnames (no path
+  segments): this blocks cookie-jar path traversal and posting credentials to a
+  typo / phishing host.
+- `--offline` serves the SQLite cache and does not require credentials.
 
 ## Caching (SQLite)
 Results are cached in `$ARBOR_CACHE_DB` (default `~/.cache/arbor/cache.sqlite3`)
@@ -145,6 +153,21 @@ python3 arbor_guardian.py attendance --max-age 3600      # reuse if < 1h old
 - `meals --add-to-basket` changes the basket (see above); `--set` alone and
   `--options` don't.
 - HTML in message bodies is flattened to plain text.
+
+
+## Development
+Runtime stays **stdlib-only**. For contributors, optional lint/format:
+
+```sh
+pip install 'ruff>=0.6'    # or: pip install -e '.[dev]'
+ruff check arbor_guardian arbor_guardian.py
+ruff format arbor_guardian arbor_guardian.py
+python -m unittest discover -s tests -v
+```
+
+Enable CI by copying `ci/github-actions.yml` to `.github/workflows/ci.yml`
+(needs a GitHub token with the `workflow` scope to push that path). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for layout notes and the no-secrets / no-PI rules.
 
 ## License
 
