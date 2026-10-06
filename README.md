@@ -145,3 +145,7 @@ python3 arbor_guardian.py attendance --max-age 3600      # reuse if < 1h old
 - `meals --add-to-basket` changes the basket (see above); `--set` alone and
   `--options` don't.
 - HTML in message bodies is flattened to plain text.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
