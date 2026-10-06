@@ -1,0 +1,9 @@
+*.cookies
+*.sqlite3
+__pycache__/
+.env
+notes/samples/
+*.har
+# Local research / captures — may contain personal/child data; never commit
+har/
+notes/
