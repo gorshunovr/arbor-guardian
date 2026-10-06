@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import re
 import urllib.error
+from zoneinfo import ZoneInfo
 
 from .constants import JS, MEAL_CHOICES_PATH, MEAL_GRID_PATH, MEAL_OPTIONS_PATH, WEEKDAYS
 from .http import req
@@ -191,10 +192,13 @@ def parse_meal_slideover(raw):
         m = re.match(r"meal_provision_(\d+)$", f["name"])
         if not date and m:
             # Field name is meal_provision_<unix>; prefer the label date above.
-            # Interpret leftover timestamps as UTC midnight so the date does not
-            # depend on the machine's local TZ (school-local midnight can still
-            # drift ±1 day near TZ boundaries — label parse is authoritative).
-            date = dt.datetime.fromtimestamp(int(m.group(1)), tz=dt.timezone.utc).date().isoformat()
+            # Interpret leftover timestamps in Europe/London so the date does not
+            # depend on the machine's local TZ (label parse is still authoritative).
+            date = (
+                dt.datetime.fromtimestamp(int(m.group(1)), tz=ZoneInfo("Europe/London"))
+                .date()
+                .isoformat()
+            )
         opts = []
         for o in f["options"]:
             lm = re.match(r"(\d+)\s+(.*?)(?:\s+-\s+(£[\d.]+))?$", o["label"])

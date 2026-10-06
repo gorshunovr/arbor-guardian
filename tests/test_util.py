@@ -141,17 +141,22 @@ class NumericIdTests(unittest.TestCase):
 
 
 class MealTimestampTests(unittest.TestCase):
-    def test_provision_field_uses_utc(self):
-        """meal_provision_<unix> fallback must not depend on machine local TZ."""
+    def test_provision_field_uses_europe_london(self):
+        """meal_provision_<unix> fallback uses Europe/London, not machine local TZ."""
         import datetime as dt
         import json
+        from zoneinfo import ZoneInfo
 
         from arbor_guardian.meals import parse_meal_slideover
 
-        # 2026-10-19 00:00:00 UTC
-        ts = int(dt.datetime(2026, 10, 19, tzinfo=dt.timezone.utc).timestamp())
-        # Minimal slideover: need form action + mapped field; empty label forces
-        # the meal_provision_<unix> timestamp fallback.
+        # BST (UTC+1): London midnight is the previous day in UTC — proves we
+        # are not using UTC. Empty label forces the unix-timestamp fallback.
+        london = ZoneInfo("Europe/London")
+        ts = int(dt.datetime(2026, 10, 19, tzinfo=london).timestamp())
+        self.assertNotEqual(
+            dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).date().isoformat(),
+            "2026-10-19",
+        )
         raw = json.dumps(
             {
                 "xtype": "container",
@@ -175,6 +180,58 @@ class MealTimestampTests(unittest.TestCase):
                             "name": f"meal_provision_{ts}",
                             "actionMappings": {"processMealProvisions": True},
                             "fieldLabel": "",
+                            "options": [
+                                {
+                                    "fields": {
+                                        "value": {"value": "100_01"},
+                                        "label": {"value": "1 Pizza"},
+                                        "selected": {"value": True},
+                                    }
+                                }
+                            ],
+                            "editable": True,
+                        },
+                    },
+                ],
+            }
+        )
+        so = parse_meal_slideover(raw)
+        self.assertEqual(so["days"][0]["date"], "2026-10-19")
+
+    def test_provision_field_prefers_label_date(self):
+        """Label date wins over meal_provision_<unix> even when they disagree."""
+        import datetime as dt
+        import json
+        from zoneinfo import ZoneInfo
+
+        from arbor_guardian.meals import parse_meal_slideover
+
+        london = ZoneInfo("Europe/London")
+        # Timestamp says 2026-10-20; label says 19 Oct 2026.
+        ts = int(dt.datetime(2026, 10, 20, tzinfo=london).timestamp())
+        raw = json.dumps(
+            {
+                "xtype": "container",
+                "items": [
+                    {
+                        "xtype": "mis-button-form-action",
+                        "props": {
+                            "currentAction": {
+                                "actionUrl": (
+                                    "/guardians/basket/process-meal-provisions/"
+                                    "meal-rotation-menu-id/1/start-date/2026-10-19/"
+                                    "end-date/2026-10-19"
+                                ),
+                                "formActionName": "processMealProvisions",
+                            }
+                        },
+                    },
+                    {
+                        "xtype": "mis-tagfield",
+                        "props": {
+                            "name": f"meal_provision_{ts}",
+                            "actionMappings": {"processMealProvisions": True},
+                            "fieldLabel": "Monday, 19 Oct 2026",
                             "options": [
                                 {
                                     "fields": {
