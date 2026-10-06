@@ -2,6 +2,9 @@
 
 import unittest
 
+from arbor_guardian.cli import numeric_id
+from arbor_guardian.constants import UNSAFE_URL_RE
+from arbor_guardian.http import _retry_after_delay
 from arbor_guardian.main import parse_meal_sets
 from arbor_guardian.util import (
     labeled_fields,
@@ -44,6 +47,10 @@ class UtilTests(unittest.TestCase):
             safe_path("/guardians/student-ui/report-cards/student-id/1"),
             "/guardians/student-ui/report-cards/student-id/1",
         )
+        # Absolute / protocol-relative URLs must not be joined onto the school base.
+        for bad in ("https://evil.example/x", "//evil.example/x", "relative", ""):
+            with self.assertRaises(ValueError):
+                safe_path(bad)
 
     def test_parse_meal_sets(self):
         self.assertEqual(
@@ -81,6 +88,110 @@ class CliArgvTests(unittest.TestCase):
         # "arbor_guardian.py messages [-h]".
         self.assertNotIn("arbor_guardian.py messages", out)
         self.assertIn("{messages,children,", out)
+
+
+class UnsafeUrlTests(unittest.TestCase):
+    def test_segment_boundaries(self):
+        # False positives the old regex had on read-looking paths.
+        for ok in (
+            "/guardians/foo/updated-thing",
+            "/guardians/foo/created",
+            "/guardians/foo/deleted",
+            "/guardians/customer-account/payment-total-kpi/student-id/1",
+        ):
+            self.assertIsNone(UNSAFE_URL_RE.search(ok), ok)
+        for bad in (
+            "/guardians/basket/checkout",
+            "/guardians/club-ui/register/club-id/1",
+            "/guardians/basket/process-meal-provisions/x",
+            "/guardians/something/pay-now",
+            "/guardians/consent/form",
+        ):
+            self.assertIsNotNone(UNSAFE_URL_RE.search(bad), bad)
+
+
+class RetryAfterTests(unittest.TestCase):
+    def test_integer_seconds(self):
+        self.assertEqual(_retry_after_delay({"Retry-After": "7"}, 0), 7.0)
+
+    def test_http_date(self):
+        import datetime as dt
+        from email.utils import format_datetime
+
+        when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=12)
+        hdr = {"Retry-After": format_datetime(when)}
+        delay = _retry_after_delay(hdr, 0)
+        self.assertGreater(delay, 8.0)
+        self.assertLess(delay, 15.0)
+
+    def test_fallback_exponential(self):
+        self.assertEqual(_retry_after_delay({"Retry-After": "soon"}, 3), 8.0)
+        self.assertEqual(_retry_after_delay({}, 2), 4.0)
+
+
+class NumericIdTests(unittest.TestCase):
+    def test_numeric_id(self):
+        import argparse
+
+        self.assertEqual(numeric_id("12345"), "12345")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            numeric_id("../etc/passwd")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            numeric_id("12a")
+
+
+class MealTimestampTests(unittest.TestCase):
+    def test_provision_field_uses_utc(self):
+        """meal_provision_<unix> fallback must not depend on machine local TZ."""
+        import datetime as dt
+        import json
+
+        from arbor_guardian.meals import parse_meal_slideover
+
+        # 2026-10-19 00:00:00 UTC
+        ts = int(dt.datetime(2026, 10, 19, tzinfo=dt.timezone.utc).timestamp())
+        # Minimal slideover: need form action + mapped field; empty label forces
+        # the meal_provision_<unix> timestamp fallback.
+        raw = json.dumps(
+            {
+                "xtype": "container",
+                "items": [
+                    {
+                        "xtype": "mis-button-form-action",
+                        "props": {
+                            "currentAction": {
+                                "actionUrl": (
+                                    "/guardians/basket/process-meal-provisions/"
+                                    "meal-rotation-menu-id/1/start-date/2026-10-19/"
+                                    "end-date/2026-10-19"
+                                ),
+                                "formActionName": "processMealProvisions",
+                            }
+                        },
+                    },
+                    {
+                        "xtype": "mis-tagfield",
+                        "props": {
+                            "name": f"meal_provision_{ts}",
+                            "actionMappings": {"processMealProvisions": True},
+                            "fieldLabel": "",
+                            "options": [
+                                {
+                                    "fields": {
+                                        "value": {"value": "100_01"},
+                                        "label": {"value": "1 Pizza"},
+                                        "selected": {"value": True},
+                                    }
+                                }
+                            ],
+                            "editable": True,
+                        },
+                    },
+                ],
+            }
+        )
+        so = parse_meal_slideover(raw)
+        self.assertEqual(so["days"][0]["date"], "2026-10-19")
 
 
 if __name__ == "__main__":

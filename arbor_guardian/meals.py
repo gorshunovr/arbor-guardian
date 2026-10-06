@@ -189,8 +189,12 @@ def parse_meal_slideover(raw):
             continue
         date = parse_short_date(re.sub(r"^[A-Za-z]+,\s*", "", f["label"]))
         m = re.match(r"meal_provision_(\d+)$", f["name"])
-        if not date and m:  # unix midnight, school-local
-            date = dt.datetime.fromtimestamp(int(m.group(1))).date().isoformat()
+        if not date and m:
+            # Field name is meal_provision_<unix>; prefer the label date above.
+            # Interpret leftover timestamps as UTC midnight so the date does not
+            # depend on the machine's local TZ (school-local midnight can still
+            # drift ±1 day near TZ boundaries — label parse is authoritative).
+            date = dt.datetime.fromtimestamp(int(m.group(1)), tz=dt.timezone.utc).date().isoformat()
         opts = []
         for o in f["options"]:
             lm = re.match(r"(\d+)\s+(.*?)(?:\s+-\s+(£[\d.]+))?$", o["label"])

@@ -142,7 +142,15 @@ def labeled_fields(value_html):
 
 
 def safe_path(path):
-    if not path or UNSAFE_URL_RE.search(path):
+    """Refuse absolute URLs, protocol-relative URLs, and write-looking paths."""
+    if (
+        not path
+        or not path.startswith("/")
+        or path.startswith("//")
+        or "://" in path
+        or "\\" in path
+        or UNSAFE_URL_RE.search(path)
+    ):
         raise ValueError(f"refusing non-read URL: {path!r}")
     return path
 

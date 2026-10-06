@@ -1,8 +1,17 @@
 """Argparse CLI for arbor_guardian subcommands."""
 
 import argparse
+import re
 
 from .constants import ACCOUNT_DASHBOARDS, ASSIGN_SEGMENTS
+
+
+def numeric_id(value):
+    """Argparse type: portal ids are decimal digits only (blocks path injection)."""
+    if not re.fullmatch(r"\d+", value or ""):
+        raise argparse.ArgumentTypeError(f"expected a numeric id, got {value!r}")
+    return value
+
 
 SUBCMDS = (
     "messages",
@@ -55,6 +64,7 @@ def build_parser():
     child.add_argument(
         "--student-id",
         action="append",
+        type=numeric_id,
         metavar="ID",
         help="limit to these child student-ids (repeatable)",
     )
@@ -82,6 +92,7 @@ def build_parser():
     year = argparse.ArgumentParser(add_help=False)
     year.add_argument(
         "--academic-year-id",
+        type=numeric_id,
         metavar="ID",
         help="school-specific academic-year id (default: current year; "
         "ids differ per school, see `academic_years` in the output)",
@@ -120,7 +131,9 @@ def build_parser():
     ml.add_argument("--date", help="single day YYYY-MM-DD")
     ml.add_argument("--since")
     ml.add_argument("--until")
-    ml.add_argument("--menu-id", metavar="ID", help="limit to this meal-rotation menu")
+    ml.add_argument(
+        "--menu-id", type=numeric_id, metavar="ID", help="limit to this meal-rotation menu"
+    )
     ml.add_argument(
         "--options",
         action="store_true",
@@ -144,6 +157,7 @@ def build_parser():
     )
     iv.add_argument(
         "--term-id",
+        type=numeric_id,
         metavar="ID",
         help="school-specific term id (default: current term; see `terms`)",
     )
@@ -162,6 +176,7 @@ def build_parser():
     rc.add_argument(
         "--card-id",
         action="append",
+        type=numeric_id,
         metavar="ID",
         help="with --download: only these card ids (repeatable)",
     )
@@ -191,12 +206,14 @@ def build_parser():
     sp.add_argument(
         "--account-id",
         action="append",
+        type=numeric_id,
         metavar="ID",
         help="customer-account id(s) instead of the child's meals account "
         "(see `invoices` → accounts); needs one --school and one --student-id",
     )
     sp.add_argument(
         "--term-id",
+        type=numeric_id,
         metavar="ID",
         help="school-specific term id (default: current term; see `terms`)",
     )
@@ -220,6 +237,9 @@ def build_parser():
         help="(experimental) exam timetable (secondary / exam candidates)",
     )
     ex.add_argument(
-        "--candidate-id", metavar="ID", help="skip discovery (normally read from the child's menu)"
+        "--candidate-id",
+        type=numeric_id,
+        metavar="ID",
+        help="skip discovery (normally read from the child's menu)",
     )
     return ap

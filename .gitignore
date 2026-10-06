@@ -7,3 +7,4 @@ notes/samples/
 # Local research / captures — may contain personal/child data; never commit
 har/
 notes/
+.ruff_cache/
