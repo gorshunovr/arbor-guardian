@@ -8,14 +8,17 @@ description: Read data from the Arbor guardian/parent portal as JSON — school 
 Reads the Arbor guardian portal and prints a JSON object to stdout. The agent
 decides what to do with the result (summarise, remind, notify). This skill only
 fetches data. Implementation lives in the `arbor_guardian/` package;
-`python3 arbor_guardian.py …` remains the public entry point.
+`python3 arbor_guardian.py …` remains the public entry point
+(`python3 -m arbor_guardian …` is equivalent). Python 3.10+, stdlib only.
 
 ## Config (env, or a `.env` file loaded automatically)
-Required: `ARBOR_EMAIL`, `ARBOR_PW`. Optional: `ARBOR_SCHOOL` (comma-separated
-subdomains — if unset, ALL schools on the account are used; auto-discovered),
-`ARBOR_COOKIE_DIR`, `ARBOR_CACHE_DB`. Nothing account-specific is hard-coded:
-schools are discovered from the credentials and children from each school's
-dashboard.
+Required: `ARBOR_EMAIL`, `ARBOR_PW` (not needed for `--offline`). Optional:
+`ARBOR_SCHOOL` (comma-separated `*.arbor.sc` hosts — if unset, ALL schools on
+the account are used; auto-discovered; other hosts are refused),
+`ARBOR_COOKIE_DIR`, `ARBOR_CACHE_DB`, `ARBOR_MIN_INTERVAL` (seconds between
+requests, default 0.5). Nothing account-specific is hard-coded: schools are
+discovered from the credentials and children from each school's dashboard.
+Ids passed on the command line (`--student-id`, `--menu-id`, …) must be numeric.
 
 ## Subcommands
 ```bash
@@ -96,7 +99,10 @@ python3 arbor_guardian.py <subcommand> [--school HOST]... [--all-schools]
   (usually secondary). The candidate id is read from the child's menu; children
   without an Examinations item return `exams_available:false`.
 
-`--list-schools` prints `{"schools":[{name, subdomain}]}` and exits.
+`--list-schools` prints `{"schools":[{name, subdomain}]}` and exits (always
+live discovery). The last successful discovery is saved to
+`$ARBOR_COOKIE_DIR/schools.json` and used as a fallback when discovery is
+blocked (see Errors).
 `--student-id` (repeatable) limits per-child commands to specific children.
 
 ### Caching (SQLite, automatic)
@@ -105,7 +111,9 @@ Results are cached in `$ARBOR_CACHE_DB` (default `~/.cache/arbor/cache.sqlite3`)
   from cache: no request, and it is **not re-marked read**. Great for re-reads.
 - `--offline` — serve everything from cache; makes **no requests to Arbor** at
   all (useful for re-reads or when the portal is unavailable). Each message then
-  carries `from_cache`; per-child results get a top-level `from_cache`.
+  carries `from_cache`; per-child results get a top-level `from_cache`. Needs
+no credentials; uses `--school` or the schools already in the cache. Cannot be
+combined with `meals --set` or PDF downloads.
 - `--max-age SEC` — reuse a cached `attendance`/`timetable`/`balances`/`children`
   result if it is younger than SEC seconds (otherwise refetch); applies to every
   read-only subcommand except `messages`.
@@ -244,6 +252,17 @@ generically until a school with entries has been seen.
 `attendance-by-date --certificate`: each student also has
 `certificate:{file, bytes} | {error}`.
 
+## Errors
+Failures print a message to **stderr** and exit non-zero (no JSON on stdout);
+per-item problems inside a result appear as an `error` field instead.
+- **Arbor firewall (WAF) block** — HTTP 403 with `x-waf-arbor: denied-request`
+  / "blocked by Arbor's firewalls". This is a network/IP refusal, **not a
+  credentials problem**; the CLI never retries it. If only school discovery
+  (`login.arbor.sc`) is blocked, it falls back to the saved/cached schools and
+  carries on (setting `ARBOR_SCHOOL` skips discovery). Don't loop on it — tell
+  the user, try later or from another network.
+- 429/503 are retried with backoff (honouring `Retry-After`, capped at 30s).
+
 ## Notes for the agent
 - Messages are **guardian-level** (per school, shared across children). The
   other subcommands are **per child**; children differ per school. All schools
@@ -257,7 +276,10 @@ generically until a school with entries has been seen.
   skill's.
 - Auth is a cookie session cached per school under `$ARBOR_COOKIE_DIR`
   (default `~/.cache/arbor/<school>.cookies`), reused until expiry (~24h);
-  re-login is automatic.
+  re-login is automatic. Cookie and cache dirs are created user-only (0700).
+- Requests are throttled (`ARBOR_MIN_INTERVAL`) and sent with an honest
+  `arbor-guardian/<version>` User-Agent; prefer the cache over refetching.
+- Dates are the school's local (UK) dates.
 
 ## Not yet covered
 Exam results (only the timetable list is read), the exam-timetable PDF, and
