@@ -58,6 +58,12 @@ python3 arbor_guardian.py --list-schools
 # {"schools":[{"name":"…","subdomain":"yourschool.uk.arbor.sc"}, …]}
 ```
 
+The last successful discovery is saved to `~/.cache/arbor/schools.json` (school
+names and hosts only). If `login.arbor.sc` is refused by Arbor's firewall
+(HTTP 403 with `x-waf-arbor: denied-request`, "blocked by Arbor's firewalls"),
+the CLI says so, does not retry, and falls back to those saved schools; school
+hosts are often still reachable. Setting `ARBOR_SCHOOL` skips discovery entirely.
+
 Usage (subcommands; `messages` is the default if omitted):
 ```sh
 python3 arbor_guardian.py                       # unread messages, all schools, with bodies

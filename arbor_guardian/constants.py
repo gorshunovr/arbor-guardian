@@ -22,6 +22,15 @@ MIN_INTERVAL = max(0.0, _env_float("ARBOR_MIN_INTERVAL", "0.5"))
 MAX_RETRIES = 4  # on 429/503
 MAX_BACKOFF = 30.0  # seconds
 
+# Honest, descriptive client identifier (no browser impersonation).
+USER_AGENT = "arbor-guardian/1.1 (+https://github.com/gorshunovr/arbor-guardian)"
+# Arbor's edge firewall marks its refusals with this header / body text.
+WAF_HEADER = "x-waf-arbor"
+WAF_BODY_MARKER = "blocked by Arbor's firewalls"
+# Last successful school discovery, kept next to the session cookies so runs
+# still work when login.arbor.sc is unreachable from this network.
+SCHOOLS_FILE = "schools.json"
+
 LIST_PATH = "/guardians/communication-center-ui/school-messages/?format=javascript"
 VIEW_PATH = (
     "/guardians/outbound-in-app-message-ui/view-outbound-in-app-message/id/{id}?format=javascript"
