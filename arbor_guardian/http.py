@@ -10,10 +10,50 @@ import urllib.request
 from email.utils import parsedate_to_datetime
 from http.cookiejar import MozillaCookieJar
 
-from .constants import MAX_BACKOFF, MAX_RETRIES, MIN_INTERVAL, TIMEOUT
+from .constants import (
+    MAX_BACKOFF,
+    MAX_RETRIES,
+    MIN_INTERVAL,
+    TIMEOUT,
+    USER_AGENT,
+    WAF_BODY_MARKER,
+    WAF_HEADER,
+)
 from .util import log
 
 _last_request = [0.0]
+
+DEFAULT_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "User-Agent": USER_AGENT,
+}
+
+
+class ArborBlocked(Exception):
+    """Arbor's edge firewall (WAF) refused the request. Retrying will not help."""
+
+    def __init__(self, url, code=403):
+        self.url = url
+        self.code = code
+        host = urllib.parse.urlsplit(url).hostname or url
+        super().__init__(
+            f"Arbor's firewall is refusing requests to {host} from this network "
+            f"(HTTP {code}, WAF block, not a credentials problem). Not retrying. "
+            "Run from a different network, pass --school/$ARBOR_SCHOOL to skip "
+            "login.arbor.sc discovery, or ask Arbor (myteam@arbor-education.com) "
+            "to review the block."
+        )
+
+
+def is_waf_block(code, headers, body):
+    """True when a response is Arbor's WAF refusal rather than an app-level error."""
+    if code not in (403, 405, 406):  # 429 is throttling: back off instead
+        return False
+    if headers is not None and headers.get(WAF_HEADER):
+        return True
+    if isinstance(body, bytes):
+        body = body[:2048].decode("utf-8", "replace")
+    return WAF_BODY_MARKER.lower() in (body or "").lower()
 
 
 def _retry_after_delay(headers, attempt):
@@ -41,16 +81,17 @@ def build_opener(cookie_file):
         except Exception:
             pass
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-    opener.addheaders = [
-        ("Accept", "application/json, text/plain, */*"),
-        ("User-Agent", "arbor-guardian/1.0"),
-    ]
+    opener.addheaders = list(DEFAULT_HEADERS.items())
     return opener, cj
 
 
 def _open(request, opener=None, raw=False):
     """Perform a request with inter-request throttling and 429/503 backoff.
+    A WAF refusal raises ArborBlocked immediately (never retried).
     raw=True returns (bytes, headers) instead of decoded text."""
+    for name, value in DEFAULT_HEADERS.items():
+        if not request.has_header(name.capitalize()):
+            request.add_header(name, value)
     for attempt in range(MAX_RETRIES + 1):
         wait = MIN_INTERVAL - (time.monotonic() - _last_request[0])
         if wait > 0:
@@ -64,6 +105,12 @@ def _open(request, opener=None, raw=False):
                 return body.decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             try:
+                try:
+                    err_body = e.read(4096)
+                except Exception:
+                    err_body = b""
+                if is_waf_block(e.code, e.headers, err_body):
+                    raise ArborBlocked(request.full_url, e.code) from None
                 if e.code in (429, 503) and attempt < MAX_RETRIES:
                     delay = min(_retry_after_delay(e.headers, attempt), MAX_BACKOFF)
                     log(

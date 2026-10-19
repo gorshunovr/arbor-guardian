@@ -16,7 +16,7 @@ from .attendance import (
     get_meals_balance,
     get_outstanding,
 )
-from .auth import discover_schools, session
+from .auth import discover_schools, load_saved_schools, save_schools, session
 from .behaviour import get_behaviour
 from .cache import cache_open, resp_get, resp_store
 from .children import discover_children
@@ -24,6 +24,7 @@ from .cli import SUBCMDS, build_parser
 from .clubs_trips_shop import get_clubs, get_shop, get_trips
 from .constants import ASSIGN_SEGMENTS
 from .exams import get_exams
+from .http import ArborBlocked
 from .invoices import compute_invoices
 from .meals import get_meal_options, get_meals, set_meal_provisions
 from .messages import do_messages
@@ -138,14 +139,28 @@ def chosen_schools_from_args(args):
     return [{"subdomain": normalize_school(h), "name": None} for h in chosen]
 
 
-def resolve_schools(args, email, pw):
+def resolve_schools(args, email, pw, cookie_dir=None, con=None):
+    """--school/$ARBOR_SCHOOL, else discovery via login.arbor.sc.
+
+    If discovery is refused by Arbor's firewall, fall back to the last
+    successful discovery (or hosts in the cache) instead of failing; school
+    hosts are often reachable when login.arbor.sc is not."""
     if not args.all_schools:
         chosen = chosen_schools_from_args(args)
         if chosen:
             return chosen
-    schools = discover_schools(email, pw)
+    try:
+        schools = discover_schools(email, pw)
+    except ArborBlocked as e:
+        fallback = (load_saved_schools(cookie_dir) if cookie_dir else []) or cached_schools(con)
+        if not fallback:
+            raise
+        log(f"warning: school discovery unavailable ({e}); using previously known schools.")
+        return fallback
     if not schools:
         raise SystemExit("No Arbor schools found for these credentials.")
+    if cookie_dir:
+        save_schools(cookie_dir, schools)
     return schools
 
 
@@ -249,7 +264,7 @@ def main():
         if not schools:
             raise SystemExit("--offline: no cached schools; run online once or pass --school.")
     else:
-        schools = resolve_schools(args, email, pw)
+        schools = resolve_schools(args, email, pw, cookie_dir, con)
     want = set(getattr(args, "student_id", None) or [])
 
     writes = args.cmd == "meals" and bool(args.set)
@@ -305,6 +320,8 @@ def run():
     """CLI entry used by ``python -m arbor_guardian`` and the thin wrapper."""
     try:
         main()
+    except ArborBlocked as e:
+        raise SystemExit(str(e))
     except urllib.error.HTTPError as e:
         raise SystemExit(f"HTTP error {e.code}: {e.reason}")
     except urllib.error.URLError as e:

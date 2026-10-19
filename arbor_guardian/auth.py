@@ -5,7 +5,7 @@ import os
 import re
 import urllib.request
 
-from .constants import LOGIN_PATH, SEARCH_BY_EMAIL, WHOAMI_PATH
+from .constants import LOGIN_PATH, SCHOOLS_FILE, SEARCH_BY_EMAIL, WHOAMI_PATH
 from .http import _open, build_opener, req
 from .util import ensure_private_dir, log, normalize_school
 
@@ -29,6 +29,36 @@ def discover_schools(email, pw):
                 log("warning: skipping unexpected school host from discovery")
                 continue
             out.append({"name": p.get("name"), "subdomain": host})
+    return out
+
+
+def save_schools(cookie_dir, schools):
+    """Remember the last discovered schools (names + hosts only, no credentials)."""
+    try:
+        ensure_private_dir(cookie_dir)
+        path = os.path.join(cookie_dir, SCHOOLS_FILE)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"schools": schools}, f, ensure_ascii=False)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError as e:
+        log(f"warning: could not save discovered schools: {e}")
+
+
+def load_saved_schools(cookie_dir):
+    """Schools saved by save_schools, validated; [] when missing or unreadable."""
+    try:
+        with open(os.path.join(cookie_dir, SCHOOLS_FILE), encoding="utf-8") as f:
+            raw = json.load(f).get("schools", [])
+    except (OSError, ValueError, AttributeError):
+        return []
+    out = []
+    for s in raw if isinstance(raw, list) else []:
+        try:
+            out.append({"name": s.get("name"), "subdomain": normalize_school(s["subdomain"])})
+        except (SystemExit, KeyError, TypeError, AttributeError):
+            continue
     return out
 
 
