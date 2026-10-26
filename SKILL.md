@@ -49,7 +49,11 @@ python3 arbor_guardian.py <subcommand> [--school HOST]... [--all-schools]
 - `meals [--student-id ID]... [--date D | --since D --until D] [--menu-id ID]` —
   **experimental**: per-day meal choices from the school's meal-menu grid
   (only schools that offer pre-ordering; others return
-  `meal_choices_available:false`). Read-only by default.
+  `meal_choices_available:false`). Read-only by default. Each day has a
+  normalized `status` (`booked` / `in_basket` / `empty` / …, see Output) and
+  each child a `summary` + `coverage`. `--text` prints a readable list instead
+  of JSON. To answer "are lunches booked?" use `summary`/`status` from a fresh
+  run (`--max-age 0`, the default), never Arbor's raw label.
   - `--options` — for each **editable** day in range, the options the portal
     offers: `value` id (e.g. `100_01`), label, leading `code`, `price`,
     `selected`. One GET per slideover (a slideover covers several days).
@@ -116,7 +120,9 @@ no credentials; uses `--school` or the schools already in the cache. Cannot be
 combined with `meals --set` or PDF downloads.
 - `--max-age SEC` — reuse a cached `attendance`/`timetable`/`balances`/`children`
   result if it is younger than SEC seconds (otherwise refetch); applies to every
-  read-only subcommand except `messages`.
+  read-only subcommand except `messages`. The default is 0 (always refetch).
+  Cached results carry `from_cache:true` and `cache_age_sec`; for state that
+  changes (meal bookings, balances) don't reuse old results to decide anything.
 - `--no-cache` — bypass the cache entirely.
 Prefer `--offline` (or a generous `--max-age`) when re-reading data you already
 pulled, to avoid hitting Arbor again.
@@ -181,12 +187,48 @@ has `course, marking, submission_type, instructions, attachments:[name]`
 (attachment URLs are dropped — they embed auth tokens).
 
 `meals`: `{cmd, students:[{school,student_id,name, meal_choices_available,
-menus:[{menu_id, period, availability, title, basket_pending,
-days:[{date, weekday, code, meal, status, editable}]}]}]}` — `status` e.g.
-"In basket" / "Deadline passed" (null on holidays); `basket_pending:true` means
-the portal says choices sit in the basket unconfirmed; `code` is the leading
+summary, coverage, menus:[{menu_id, period, availability, title,
+basket_pending, summary, days:[{date, weekday, code, meal, status,
+arbor_status, editable}]}]}]}`.
+
+**Use `status`, not `arbor_status`.** Arbor shows a booked, checked-out day as
+just the dish with a *blank* label, which is easy to misread as "not booked".
+`status` is always one of:
+
+| `status` | meaning |
+|---|---|
+| `booked` | dish chosen and checked out (Arbor label blank) |
+| `in_basket` | chosen but only in the basket — **not confirmed until checkout** |
+| `empty` | "No choice selected", still open |
+| `deadline_passed` | past the choice deadline, read-only (`meal` shows the dish if any) |
+| `not_offered` | no meal service that day (e.g. school holiday) |
+| `unknown` | an Arbor label this tool doesn't recognise — see `arbor_status` |
+
+`arbor_status` is Arbor's own wording (null when blank). `summary` (per menu
+and per child, over the `--since/--until` range): `{days_total, booked,
+in_basket, empty, deadline_passed, not_offered, unknown}`; `days_total`
+excludes `not_offered` days, so "all booked" means `booked == days_total`.
+`coverage` (per child): `{unpaid_days, price_per_meal, cost, balance,
+shortfall, covered, reason}` — `unpaid_days` = `empty` + `in_basket`, priced
+from that day's options in the portal and compared with the meals-balance KPI
+(2 extra GETs at most). Anything not shown by the portal is `null` with a
+`reason`; the price is never guessed. It is an estimate (it ignores pending
+charges for days already booked). `basket_pending:true` means the portal
+banner says choices sit in the basket unconfirmed; `code` is the leading
 number on the portal's label (no legend in the portal; jacket potatoes are
 always 2–5, allergy-free 9/99 — treat it as a menu slot number).
+
+`meals --text` sample:
+
+```
+school.uk.arbor.sc  student 123  Child Name
+  menu 9: 2nd March 2026 - 20th March 2026
+    2026-03-02 Mon booked          Pasta Bake - Fruit Pot
+    2026-03-03 Tue in_basket       Veggie Curry - Yoghurt  [In basket]
+    2026-03-04 Wed empty           No choice selected
+  summary: 1/3 booked, 1 in basket, 1 empty
+  coverage: 2 unpaid day(s) x £2.50 = £5.00 vs balance £4.00 -> short £1.00
+```
 
 `meals --options`: menus additionally carry `deadline_note` and
 `options:[{date, editable, selected, selected_label,

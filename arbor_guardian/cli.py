@@ -135,6 +135,11 @@ def build_parser():
         "--menu-id", type=numeric_id, metavar="ID", help="limit to this meal-rotation menu"
     )
     ml.add_argument(
+        "--text",
+        action="store_true",
+        help="print a readable per-day list + summary instead of JSON (list mode only)",
+    )
+    ml.add_argument(
         "--options",
         action="store_true",
         help="list each editable day's options (value id, label, selected); 1 GET per slideover",

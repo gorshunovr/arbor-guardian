@@ -26,7 +26,7 @@ from .constants import ASSIGN_SEGMENTS
 from .exams import get_exams
 from .http import ArborBlocked
 from .invoices import compute_invoices
-from .meals import get_meal_options, get_meals, set_meal_provisions
+from .meals import get_meal_options, get_meals, meals_text, set_meal_provisions
 from .messages import do_messages
 from .report_cards import get_report_cards
 from .util import load_dotenv, log, normalize_school, to_date
@@ -193,6 +193,10 @@ def cache_key(args, schools, want):
         "since": getattr(args, "since", None),
         "until": getattr(args, "until", None),
     }
+    # Output schema version for meals (v2 adds normalized status/summary/coverage),
+    # so results cached by an older version are never served as the new shape.
+    if args.cmd == "meals":
+        key["v"] = 2
     # Options of newer subcommands: only added when set, so keys of the older
     # subcommands (and their cached results) are unchanged.
     for opt in (
@@ -298,9 +302,11 @@ def main():
                 raise SystemExit(f"--offline: no cached '{args.cmd}' result for these arguments.")
             out = cached
             out["from_cache"] = True
+            out["cache_age_sec"] = int(time.time() - fetched_at)
         elif fresh:
             out = cached
             out["from_cache"] = True
+            out["cache_age_sec"] = int(time.time() - fetched_at)
         else:
             if args.cmd == "children":
                 out = compute_children(email, pw, cookie_dir, schools)
@@ -312,6 +318,13 @@ def main():
                 resp_store(con, key, out)
             out["from_cache"] = False
 
+    if (
+        getattr(args, "text", False)
+        and out.get("students") is not None
+        and not (args.set or args.options)
+    ):
+        sys.stdout.write(meals_text(out) + "\n")
+        return
     json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
 

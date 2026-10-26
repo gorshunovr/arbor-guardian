@@ -6,9 +6,61 @@ import re
 import urllib.error
 from zoneinfo import ZoneInfo
 
-from .constants import JS, MEAL_CHOICES_PATH, MEAL_GRID_PATH, MEAL_OPTIONS_PATH, WEEKDAYS
+from .constants import (
+    JS,
+    MEAL_CHOICES_PATH,
+    MEAL_GRID_PATH,
+    MEAL_OPTIONS_PATH,
+    MEALS_BALANCE_PATH,
+    WEEKDAYS,
+)
 from .http import req
-from .util import html_text, parse_short_date, strip_html, walk
+from .util import html_text, kpi_main_value, money, parse_short_date, strip_html, walk
+
+# Normalized per-day booking state for `meals` (agents should read `status`;
+# Arbor's own wording is kept in `arbor_status`).
+#   booked          a dish is chosen and checked out (Arbor shows no description)
+#   in_basket       chosen but sitting in the basket; not confirmed until checkout
+#   empty           "No choice selected" and still editable
+#   deadline_passed past the choice deadline (dish, if any, in `meal`; read-only)
+#   not_offered     no meal service that day (e.g. "School holiday - no choices available")
+#   unknown         any Arbor label not recognised above (see `arbor_status`)
+MEAL_STATUSES = ("booked", "in_basket", "empty", "deadline_passed", "not_offered", "unknown")
+NO_CHOICE_RE = re.compile(r"(?i)^no choice selected$")
+NOT_OFFERED_RE = re.compile(r"(?i)\bno choices? available|school holiday|\bno meals?\b")
+
+
+def meal_status(meal, arbor_status, code=None):
+    """Map a grid row (dish text, Arbor description, slot number) -> MEAL_STATUSES."""
+    raw = (arbor_status or "").strip().lower()
+    dish = (meal or "").strip()
+    if raw == "in basket":
+        return "in_basket"
+    if raw.startswith("deadline passed"):
+        return "deadline_passed"
+    if raw:
+        return "unknown"
+    if not dish or NO_CHOICE_RE.match(dish):
+        return "empty"
+    if code is None and NOT_OFFERED_RE.search(dish):
+        return "not_offered"
+    return "booked"
+
+
+def meal_summary(days):
+    """Counts per normalized status; days_total excludes not_offered days."""
+    c = {k: 0 for k in MEAL_STATUSES}
+    for d in days:
+        c[d.get("status") if d.get("status") in c else "unknown"] += 1
+    return {
+        "days_total": len(days) - c["not_offered"],
+        "booked": c["booked"],
+        "in_basket": c["in_basket"],
+        "empty": c["empty"],
+        "deadline_passed": c["deadline_passed"],
+        "not_offered": c["not_offered"],
+        "unknown": c["unknown"],
+    }
 
 
 def parse_meal_menus(raw):
@@ -69,13 +121,17 @@ def parse_meal_grid(raw):
                 ).isoformat()
             val = strip_html(str(p.get("value") or "")).strip()
             cm = re.match(r"(\d+)\s+(.*)$", val)
+            code = cm.group(1) if cm else None
+            meal = (cm.group(2) if cm else val) or None
+            raw = strip_html(p.get("description") or "").strip() or None
             days.append(
                 {
                     "date": date,
                     "weekday": wd or None,
-                    "code": cm.group(1) if cm else None,
-                    "meal": (cm.group(2) if cm else val) or None,
-                    "status": strip_html(p.get("description") or "").strip() or None,
+                    "code": code,
+                    "meal": meal,
+                    "status": meal_status(meal, raw, code),
+                    "arbor_status": raw,
                     "editable": bool(m),
                 }
             )
@@ -105,8 +161,123 @@ def get_meals(opener, base, child, since, until):
             days = [d for d in days if d["date"] and d["date"] >= since.isoformat()]
         if until:
             days = [d for d in days if d["date"] and d["date"] <= until.isoformat()]
-        mn.update({"title": t, "basket_pending": pending, "days": days})
-    return {"meal_choices_available": bool(menus), "menus": menus}
+        mn.update(
+            {"title": t, "basket_pending": pending, "summary": meal_summary(days), "days": days}
+        )
+    all_days = [d for mn in menus for d in mn["days"]]
+    out = {"meal_choices_available": bool(menus), "summary": meal_summary(all_days)}
+    out["coverage"] = meal_coverage(opener, base, sid, menus) if menus else None
+    out["menus"] = menus
+    return out
+
+
+UNPAID = ("empty", "in_basket")
+
+
+def option_price(so, date):
+    """Per-meal price for `date` from a slideover: the selected option's price,
+    else the single price shared by all options; None if absent or ambiguous."""
+    for d in so["days"]:
+        if d["date"] != date:
+            continue
+        sel = [money(o["price"]) for o in d["options"] if o["selected"] and o["price"]]
+        if sel and sel[0] is not None:
+            return sel[0]
+        prices = {money(o["price"]) for o in d["options"] if o["value"] and o["price"]}
+        prices.discard(None)
+        return prices.pop() if len(prices) == 1 else None
+    return None
+
+
+def coverage_block(unpaid_days, price, balance, reason=None):
+    cost = round(unpaid_days * price, 2) if price is not None else None
+    if unpaid_days == 0:
+        cost, reason = 0.0, None
+    ok = cost is not None and balance is not None
+    if not ok and not reason:
+        reason = "meals balance not available"
+    return {
+        "unpaid_days": unpaid_days,
+        "price_per_meal": price,
+        "cost": cost,
+        "balance": balance,
+        "shortfall": round(max(0.0, cost - balance), 2) if ok else None,
+        "covered": (cost <= balance) if ok else None,
+        "reason": None if ok else reason,
+    }
+
+
+def meal_coverage(opener, base, sid, menus):
+    """Unpaid days (empty + in_basket) x per-meal price vs current meals balance.
+
+    Price comes from the first unpaid editable day's options (1 extra GET, only
+    when something is unpaid); balance from the meals-balance KPI (1 GET).
+    Never guessed: missing pieces -> null + `reason`."""
+    unpaid = [(mn["menu_id"], d) for mn in menus for d in mn["days"] if d["status"] in UNPAID]
+    try:
+        balance = money(kpi_main_value(req(opener, base + MEALS_BALANCE_PATH.format(id=sid))))
+    except urllib.error.HTTPError:
+        balance = None
+    price, reason = None, None
+    target = next(((m, d) for m, d in unpaid if d["editable"] and d["date"]), None)
+    if unpaid and not target:
+        reason = "no editable unpaid day to read the price from"
+    elif target:
+        try:
+            price = option_price(
+                get_meal_slideover(opener, base, target[0], sid, target[1]["date"]),
+                target[1]["date"],
+            )
+        except urllib.error.HTTPError as e:
+            reason = f"price lookup failed (HTTP {e.code})"
+        if price is None and not reason:
+            reason = "price not shown (or differs between options)"
+    return coverage_block(len(unpaid), price, balance, reason)
+
+
+def meals_text(out):
+    """Human-readable `meals` output (same data as the JSON)."""
+    lines = []
+    for st in out.get("students", []):
+        lines.append(f"{st.get('school')}  student {st.get('student_id')}  {st.get('name') or ''}")
+        if not st.get("meal_choices_available"):
+            lines.append(f"  no meal choices ({st.get('note') or 'none listed'})")
+            continue
+        for mn in st.get("menus", []):
+            lines.append(f"  menu {mn.get('menu_id')}: {mn.get('period') or ''}")
+            for d in mn.get("days", []):
+                wd = (d.get("weekday") or "")[:3]
+                raw = f"  [{d['arbor_status']}]" if d.get("arbor_status") else ""
+                lines.append(
+                    f"    {d.get('date') or '?':10} {wd:3} {d.get('status'):15} "
+                    f"{d.get('meal') or '-'}{raw}"
+                )
+        sm = st.get("summary") or {}
+        extra = "".join(
+            f", {sm[k]} {k.replace('_', ' ')}"
+            for k in ("deadline_passed", "not_offered", "unknown")
+            if sm.get(k)
+        )
+        lines.append(
+            f"  summary: {sm.get('booked', 0)}/{sm.get('days_total', 0)} booked, "
+            f"{sm.get('in_basket', 0)} in basket, {sm.get('empty', 0)} empty{extra}"
+        )
+        cv = st.get("coverage")
+        if cv:
+            bal = f"£{cv['balance']:.2f}" if cv.get("balance") is not None else "n/a"
+            if cv.get("reason"):
+                lines.append(f"  coverage: {cv['unpaid_days']} unpaid day(s); n/a ({cv['reason']})")
+            elif not cv["unpaid_days"]:
+                lines.append(f"  coverage: 0 unpaid days; balance {bal} -> covered")
+            else:
+                lines.append(
+                    f"  coverage: {cv['unpaid_days']} unpaid day(s) x "
+                    f"£{cv['price_per_meal']:.2f} = £{cv['cost']:.2f} vs balance {bal}"
+                    f" -> {'covered' if cv['covered'] else 'short £%.2f' % cv['shortfall']}"
+                )
+    if out.get("from_cache"):
+        lines.append(f"(from cache, {out.get('cache_age_sec')}s old)")
+    return "\n".join(lines)
 
 
 # ---- meals: per-day options and (opt-in) basket provisions ------------------

@@ -78,7 +78,8 @@ python3 arbor_guardian.py attendance-by-date --non-present   # lates/absences th
 python3 arbor_guardian.py attendance-by-date --since 2026-09-01 --until 2026-09-30
 python3 arbor_guardian.py assignments                    # due/overdue/submitted homework
 python3 arbor_guardian.py assignments --segment overdue --details
-python3 arbor_guardian.py meals --since 2026-10-12      # (experimental) meal choices
+python3 arbor_guardian.py meals --since 2026-10-12      # (experimental) meal choices: status per day + summary
+python3 arbor_guardian.py meals --since 2026-10-12 --text   # same, readable ("summary: 15/15 booked, 0 in basket, 0 empty")
 python3 arbor_guardian.py meals --options --date 2026-10-19   # that day's options (ids like 100_01)
 python3 arbor_guardian.py meals --school S --student-id 123 --set 2026-10-19=100_01   # dry run
 python3 arbor_guardian.py meals --school S --student-id 123 --set 2026-10-19=100_01 --add-to-basket
